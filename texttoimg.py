@@ -1,95 +1,163 @@
-from tkinter import *
+import streamlit as st
 import sqlite3
-from PIL import Image, ImageTk
 import os
+import io
+import base64
+from PIL import Image
+
+# =====================================================
+# CONFIGURACIÓN GENERAL
+# =====================================================
+st.set_page_config(
+    page_title="Texto a Lengua de Señas",
+    layout="wide"
+)
+
+# =====================================================
+# CSS (FRONTEND ANIMADO – AQUÍ VA EL CSS)
+# =====================================================
+def load_css():
+    st.markdown("""
+    <style>
+    body {
+        background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+    }
+
+    .title {
+        font-size: 3rem;
+        text-align: center;
+        color: #00ffff;
+        text-shadow: 0 0 25px #00ffff;
+        animation: pulse 2s infinite alternate;
+        margin-bottom: 30px;
+    }
+
+    @keyframes pulse {
+        from { text-shadow: 0 0 10px #00ffff; }
+        to { text-shadow: 0 0 30px #00ffff; }
+    }
+
+    .sign {
+        animation: fadeInUp 0.6s ease forwards;
+        border-radius: 16px;
+        box-shadow: 0 0 20px rgba(0,255,255,0.6);
+        transition: transform 0.3s ease;
+        margin: 5px;
+    }
+
+    .sign:hover {
+        transform: scale(1.15);
+    }
+
+    @keyframes fadeInUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+load_css()
+
+# =====================================================
+# BASE DE DATOS
+# =====================================================
+def get_connection():
+    return sqlite3.connect("database.db", check_same_thread=False)
 
 def create_db():
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS Images (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        image_name TEXT NOT NULL,
-        image_data BLOB NOT NULL
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS Images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            image_name TEXT UNIQUE,
+            image_data BLOB
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def insert_images_from_folder(folder="signs"):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    for file in os.listdir(folder):
+        if file.lower().endswith(".png"):
+            path = os.path.join(folder, file)
+            with open(path, "rb") as f:
+                data = f.read()
+
+            cur.execute("""
+                INSERT OR IGNORE INTO Images (image_name, image_data)
+                VALUES (?, ?)
+            """, (file.lower(), sqlite3.Binary(data)))
+
+    conn.commit()
+    conn.close()
+
+def get_images(names):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    placeholders = ",".join("?" * len(names))
+    cur.execute(
+        f"SELECT image_name, image_data FROM Images WHERE image_name IN ({placeholders})",
+        names
     )
-    ''')
-    conn.commit()
+
+    result = {name: data for name, data in cur.fetchall()}
     conn.close()
+    return result
 
-def insert_image(image_path):
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-
-    with open(image_path, 'rb') as file:
-        image_blob = file.read()
-
-    image_name = os.path.basename(image_path).lower()  # Convertir el nombre de la imagen a minúsculas
-    cursor.execute("INSERT INTO Images (image_name, image_data) VALUES (?, ?)", (image_name, sqlite3.Binary(image_blob)))
-    conn.commit()
-
-    conn.close()
-
-def get_images_by_names(image_names):
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-
-    placeholders = ', '.join(['?'] * len(image_names))
-    query = f"SELECT image_name, image_data FROM Images WHERE image_name IN ({placeholders})"
-    cursor.execute(query, image_names)
-    images = cursor.fetchall()
-
-    conn.close()
-
-    image_dict = {name: data for name, data in images}
-    return image_dict
-
-def text_to_image():
-    root = Tk()
-    root.title("Texto a Imagen")
-
-    text = "Hola amigo".lower()  # Convertir el texto a minúsculas
-    words = text.split()  # Separar el texto en palabras
-    image_size = (100, 100)  # Tamaño deseado para las imágenes
-
-    image_names = [f"{char}.png" for word in words for char in word]
-    images_dict = get_images_by_names(image_names)
-
-    row = 0
-
-    for word in words:
-        column = 0  # Reiniciar la columna a 0 al empezar una nueva palabra
-        for char in word:
-            image_name = f"{char}.png"
-            if image_name in images_dict:
-                image_data = images_dict[image_name]
-                with open(f'image_from_db_{char}.png', 'wb') as file:
-                    file.write(image_data)
-
-                img = Image.open(f'image_from_db_{char}.png')
-                img = img.resize(image_size, Image.LANCZOS)  # Redimensionar la imagen
-                photo = ImageTk.PhotoImage(img)
-
-                label = Label(root, image=photo)
-                label.image = photo
-                label.grid(row=row, column=column, padx=5, pady=5)  # Colocar en la fila y columna actuales
-
-                column += 1
-        
-        row += 1  # Mover a la siguiente fila después de cada palabra
-
-    root.mainloop()
-
-# Crear la base de datos si no existe
+# =====================================================
+# INICIALIZACIÓN
+# =====================================================
 create_db()
 
-# Insertar imágenes en la base de datos si no están ya insertadas
-images_to_insert = ['img/A.png', 'img/B.png', 'img/C.png', 'img/D.png', 'img/E.png', 'img/F.png', 'img/G.png', 
-                    'img/H.png', 'img/I.png', 'img/J.png', 'img/K.png', 'img/L.png', 'img/LL.png', 'img/M.png', 
-                    'img/N.png', 'img/Ñ.png', 'img/O.png', 'img/P.png', 'img/Q.png', 'img/R.png', 'img/S.png', 
-                    'img/T.png', 'img/U.png', 'img/V.png', 'img/W.png', 'img/X.png', 'img/Y.png', 'img/Z.png']
+if os.path.exists("signs"):
+    insert_images_from_folder("signs")
 
-for image in images_to_insert:
-    insert_image(image)
+# =====================================================
+# INTERFAZ
+# =====================================================
+st.markdown(
+    '<div class="title">Texto → Lengua de Señas Animada</div>',
+    unsafe_allow_html=True
+)
 
-# Mostrar texto como imágenes en la ventana
-text_to_image()
+st.markdown(
+    "💡 **Proyecto inclusivo:** convierte texto en representaciones visuales de lenguaje de señas.",
+)
+
+texto = st.text_input(
+    "✍️ Ingresa un texto",
+    value="hola amigo"
+).lower()
+
+# =====================================================
+# RENDER DE SEÑAS
+# =====================================================
+if texto:
+    caracteres = [f"{c}.png" for c in texto if c.isalpha()]
+    
+    if caracteres:
+        images = get_images(caracteres)
+
+        cols = st.columns(len(caracteres))
+
+        for i, char in enumerate(caracteres):
+            if char in images:
+                img = Image.open(io.BytesIO(images[char]))
+                img = img.resize((120, 120))
+
+                buffer = io.BytesIO()
+                img.save(buffer, format="PNG")
+                img_base64 = base64.b64encode(buffer.getvalue()).decode()
+
+                cols[i].markdown(
+                    f"""
+                    <img class="sign"
+                    src="data:image/png;base64,{img_base64}">
+                    """,
+                    unsafe_allow_html=True
+                )
