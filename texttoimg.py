@@ -121,7 +121,7 @@ if os.path.exists("signs"):
 # INTERFAZ
 # =====================================================
 st.markdown(
-    '<div class="title">Texto → Lengua de Señas Animada</div>',
+    '<div class="title">Texto → Lengua de Señas</div>',
     unsafe_allow_html=True
 )
 
